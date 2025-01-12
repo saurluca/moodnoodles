@@ -3,10 +3,19 @@ import {reactive, ref} from 'vue'
 import {nanoid} from 'nanoid'
 import WellbeingChart from '~/components/WellbeingChart.vue'
 import {House} from 'lucide-vue-next'
+import {useDark} from '@vueuse/core'
+
 
 // Initialize Supabase
 const client = useSupabaseClient()
 const user = useSupabaseUser()
+
+const isDarkMode = useDark()
+function toggleDarkMode() {
+  console.log('toggle')
+  isDarkMode.value = !isDarkMode.value
+}
+
 
 // Main Form
 const form = reactive({
@@ -184,6 +193,13 @@ onMounted(() => {
           <House class="text-black dark:text-slate-200 h-6 w-6"/>
         </button>
       </router-link>
+        <button
+            :class="['px-2.5 py-0 rounded-full  bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-gray-500 transition-colors duration-300 text-xl']"
+            @click="toggleDarkMode"
+        >
+          <span v-if="isDarkMode" class="text-yellow-400">☀️</span>
+          <span v-else class="text-gray-800">🌙</span>
+        </button>
     </div>
 
     <!-- Form -->
@@ -264,6 +280,8 @@ onMounted(() => {
             Home
           </button>
         </router-link>
+
+
       </div>
     </div>
 
