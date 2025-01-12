@@ -3,18 +3,11 @@ import {reactive, ref} from 'vue'
 import {nanoid} from 'nanoid'
 import WellbeingChart from '~/components/WellbeingChart.vue'
 import {House} from 'lucide-vue-next'
-import {useDark} from '@vueuse/core'
-
 
 // Initialize Supabase
 const client = useSupabaseClient()
 const user = useSupabaseUser()
 
-const isDarkMode = useDark()
-function toggleDarkMode() {
-  console.log('toggle')
-  isDarkMode.value = !isDarkMode.value
-}
 
 
 // Main Form
@@ -186,20 +179,12 @@ onMounted(() => {
 <template>
   <d-page>
     <!-- Header -->
-    <div class="flex flex-row justify-between">
+    <div class="flex flex-row justify-between mb-2">
       <h1 class="page-title">Daily Wellbeing Tracker</h1>
-      <router-link to="/">
-        <button class="dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full p-1.5">
-          <House class="text-black dark:text-slate-200 h-6 w-6"/>
-        </button>
-      </router-link>
-        <button
-            :class="['px-2.5 py-0 rounded-full  bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-gray-500 transition-colors duration-300 text-xl']"
-            @click="toggleDarkMode"
-        >
-          <span v-if="isDarkMode" class="text-yellow-400">☀️</span>
-          <span v-else class="text-gray-800">🌙</span>
-        </button>
+      <div class="flex flex-row gap-1">
+        <d-button-insights/>
+        <d-button-darkmode/>
+      </div>
     </div>
 
     <!-- Form -->
@@ -215,7 +200,6 @@ onMounted(() => {
         <label class="tracker-title-input">Feeling of Wellbeing (0-10)</label>
         <WellbeingChart @pointSelected="updateWellbeing" v-model:formValue="form.wellbeing"/>
       </div>
-
       <!-- Initial Dynamic Fields (First portion of the form) -->
       <d-tracker-input
           v-for="item in fields.slice(0, fields.length - 5)"
@@ -280,7 +264,6 @@ onMounted(() => {
             Home
           </button>
         </router-link>
-
 
       </div>
     </div>
