@@ -154,6 +154,7 @@ async function upsertEntry(dataToUpload) {
   }
 }
 
+
 // Update Wellbeing
 function updateWellbeing(value) {
   form.wellbeing = Number(value)
@@ -259,11 +260,9 @@ onMounted(() => {
 
           <p><strong>Period:</strong> {{ form.period }}</p>
         </div>
-        <router-link to="/">
-          <button class="bg-blue-500 text-white p-2 mt-4 rounded w-full">
+          <button @click="showSuccessDialog = false" class="bg-blue-500 text-white p-2 mt-4 rounded w-full">
             Home
           </button>
-        </router-link>
 
       </div>
     </div>

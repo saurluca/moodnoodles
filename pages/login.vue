@@ -29,7 +29,6 @@ async function login() {
     <div class="flex justify-between items-center mb-4">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-200">Login</h1>
-
         <d-button-home/>
       </div>
 
