@@ -4,10 +4,17 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   css: ['~/assets/css/main.css'],
   ssr: false,
+  supabase: {
+    redirect: false,
+    exclude: ["/login", "/sign_up"],
+  },
+
   postcss: {
     plugins: {
       tailwindcss: {},
       autoprefixer: {},
     },
   },
+
+  modules: ['@nuxtjs/supabase'],
 })
