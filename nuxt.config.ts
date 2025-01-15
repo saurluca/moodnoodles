@@ -5,6 +5,12 @@ export default defineNuxtConfig({
     devtools: {enabled: true},
     css: ['~/assets/css/main.css'],
     ssr: false,
+    runtimeConfig: {
+        public: {
+            posthogPublicKey: 'phc_11uwYEIIVE4L5AI37NS8U7MwLLRoeJnFKWYwLwIf4zX',
+            posthogHost: 'https://eu.i.posthog.com'
+        }
+    },
     supabase: {
         redirect: true,
         exclude: ["/login", "/sign_up"],
