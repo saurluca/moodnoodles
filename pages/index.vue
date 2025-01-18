@@ -4,6 +4,7 @@ import {nanoid} from 'nanoid'
 import WellbeingChart from '~/components/WellbeingChart.vue'
 import {House} from 'lucide-vue-next'
 import WellbeingEmoji from '~/components/WellbeingEmoji.vue'
+import SleepTimeInput from '~/components/SleepTimeInput.vue'
 
 // Initialize Supabase
 const client = useSupabaseClient()
@@ -17,6 +18,8 @@ const form = reactive({
   wellbeing: 0,
   meditated: null,
   sleep_time: '',
+  sleep_start: '',
+  sleep_end: '',
   did_sport: null,
   gratitude: '',
   insight: null,
@@ -37,9 +40,8 @@ const existingEntryId = ref(null)
 
 // Field Config
 const fields = [
-  {title: 'Gratitude Note', slug: 'gratitude', type: 'text'},
-  {title: 'Learned or Observed', slug: 'insight', type: 'text'},
-  {title: 'Sleep Time (hours)', slug: 'sleep_time', type: 'number'},
+  {title: 'What are you grateful for today?', slug: 'gratitude', type: 'text'},
+  {title: 'What did you learn today?', slug: 'insight', type: 'text'},
   {title: 'Steps taken', slug: 'steps', type: 'number'},
   {title: 'Bread eaten', slug: 'breadstuff', type: 'select', options: ['Bread', 'Buns', 'Both', 'None']},
   {title: 'Meditated', slug: 'meditated', type: 'bool'},
@@ -73,12 +75,22 @@ async function fetchData() {
 
 // Prepare Data
 function prepareFormData() {
+  // Format times as HH:MM:SS for database
+  const formatTimeForDB = (hour, minute) => {
+    if (!hour) return null
+    const h = hour.padStart(2, '0')
+    const m = (minute || '0').padStart(2, '0')
+    return `${h}:${m}:00`
+  }
+
   return {
     id: form.id,
     wellbeing: Number(form.wellbeing),
     insight: (form.insight ?? '').trim() || null,
     meditated: parseBoolean(form.meditated),
     sleep_time: (form.sleep_time == null || form.sleep_time === '') ? null : Number(form.sleep_time),
+    sleep_start: formatTimeForDB(form.sleep_start_hour, form.sleep_start_minute),
+    sleep_end: formatTimeForDB(form.sleep_end_hour, form.sleep_end_minute),
     did_sport: parseBoolean(form.did_sport),
     gratitude: (form.gratitude ?? '').trim() || null,
     steps: (form.steps == null || form.steps === '') ? null : Number(form.steps),
@@ -199,9 +211,10 @@ onMounted(() => {
     >
       <!-- Wellbeing -->
       <div>
-        <label class="tracker-title-input">How are you feeling today?</label>
+        <label class="tracker-title-input ">How are you feeling today?</label>
         <WellbeingEmoji @pointSelected="updateWellbeing" v-model:formValue="form.wellbeing"/>
       </div>
+      <SleepTimeInput :form="form" />
       <!-- Initial Dynamic Fields (First portion of the form) -->
       <d-tracker-input
           v-for="item in fields.slice(0, fields.length - 5)"

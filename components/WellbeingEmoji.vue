@@ -28,7 +28,7 @@ function selectWellbeing(e, value) {
 </script>
 
 <template>
-  <div class="flex flex-col items-center gap-2 my-2">
+  <div class="flex flex-col items-center gap-2 mt-4 mb-5">
     <div class="flex justify-between w-full max-w-md">
       <button
         v-for="option in options"
