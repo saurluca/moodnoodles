@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {ref, onMounted} from 'vue'
 import {Chart, registerables} from 'chart.js'
+import { MatrixController, MatrixElement } from 'chartjs-chart-matrix'
 
 Chart.register(...registerables)
+Chart.register(MatrixController, MatrixElement)
 
 let chart = null
 const client = useSupabaseClient()
@@ -13,9 +15,12 @@ const wellbeingData = ref([])
 const sleepData = ref([])
 const stepsData = ref([])
 
+const charts = ref([])
+const correlationData = ref(null)
+
 onMounted(async () => {
   await fetchData()
-  renderChart()
+  renderCharts()
 })
 
 async function fetchData() {
@@ -53,6 +58,438 @@ function normalizeLog(arr, med, scaleFactor) {
 // Keep steps on linear normalization for contrast
 function normalizeLinear(arr, med, scaleFactor) {
   return arr.map(x => 5 + (x - med) / scaleFactor)
+}
+
+function calculateCorrelation(arr1: number[], arr2: number[]): number {
+  const n = Math.min(arr1.length, arr2.length)
+  if (n < 2) return 0
+  
+  const mean1 = arr1.reduce((a, b) => a + b, 0) / n
+  const mean2 = arr2.reduce((a, b) => a + b, 0) / n
+  
+  const variance1 = arr1.reduce((a, b) => a + Math.pow(b - mean1, 2), 0)
+  const variance2 = arr2.reduce((a, b) => a + Math.pow(b - mean2, 2), 0)
+  
+  const covariance = arr1
+    .map((x, i) => (x - mean1) * (arr2[i] - mean2))
+    .reduce((a, b) => a + b, 0)
+    
+  return covariance / Math.sqrt(variance1 * variance2)
+}
+
+function calculateMovingAverage(data: number[], window: number): number[] {
+  return data.map((_, idx) => {
+    const start = Math.max(0, idx - window + 1)
+    const subset = data.slice(start, idx + 1)
+    return subset.reduce((a, b) => a + b, 0) / subset.length
+  })
+}
+
+function renderCharts() {
+  if (!trackerData.value.length) return
+  
+  const chartContainers = [
+    'trendChart',
+    'weekdayChart',
+    'distributionChart',
+    'movingAverageChart',
+    'scatterChart'
+  ]
+  
+  // Cleanup existing charts
+  charts.value.forEach(chart => chart.destroy())
+  charts.value = []
+
+  // 1. Main Trend Chart (existing one)
+  renderMainChart()
+  
+  // 2. Weekday Analysis
+  renderWeekdayChart()
+  
+  // 3. Distribution Chart
+  renderDistributionChart()
+  
+  // 4. Moving Averages
+  renderMovingAverageChart()
+  
+  // 5. Scatter Plot
+  renderScatterPlot()
+}
+
+function renderMainChart() {
+  // ... existing renderChart code ...
+}
+
+function renderCorrelationChart() {
+  const ctx = document.querySelector('#correlationChart').getContext('2d')
+  const metrics = ['wellbeing', 'sleep', 'steps']
+  const correlations = []
+  
+  metrics.forEach(m1 => {
+    metrics.forEach(m2 => {
+      // Skip self-correlations (e.g., wellbeing vs wellbeing)
+      if (m1 === m2) return
+      
+      const corr = calculateCorrelation(
+        trackerData.value.map(e => e[m1] || 0),
+        trackerData.value.map(e => e[m2] || 0)
+      )
+      correlations.push({ m1, m2, corr })
+    })
+  })
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: correlations.map(c => `${c.m1} vs ${c.m2}`),
+      datasets: [{
+        label: 'Correlation',
+        data: correlations.map(c => c.corr),
+        backgroundColor: correlations.map(c => {
+          // Color based on correlation strength
+          const value = Math.abs(c.corr)
+          return c.corr >= 0 
+            ? `rgba(0, ${Math.floor(value * 255)}, 0, 0.7)`
+            : `rgba(${Math.floor(value * 255)}, 0, 0, 0.7)`
+        })
+      }]
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: 'Correlation Between Metrics'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          min: -1,
+          max: 1
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
+}
+
+function renderWeekdayChart() {
+  const ctx = document.querySelector('#weekdayChart').getContext('2d')
+  const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  
+  const weekdayData = weekdays.map(day => {
+    const dayEntries = trackerData.value.filter(e => new Date(e.date).getDay() === weekdays.indexOf(day))
+    return {
+      wellbeing: dayEntries.reduce((acc, e) => acc + (e.wellbeing || 0), 0) / dayEntries.length || 0,
+      sleep: dayEntries.reduce((acc, e) => acc + (e.sleep_time || 0), 0) / dayEntries.length || 0,
+      steps: dayEntries.reduce((acc, e) => acc + (e.steps || 0), 0) / dayEntries.length || 0
+    }
+  })
+
+  const chart = new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: weekdays,
+      datasets: [
+        {
+          label: 'Wellbeing',
+          data: weekdayData.map(d => d.wellbeing),
+          borderColor: 'green',
+          fill: true,
+          backgroundColor: 'rgba(0, 255, 0, 0.1)'
+        },
+        {
+          label: 'Sleep (h)',
+          data: weekdayData.map(d => d.sleep),
+          borderColor: 'blue',
+          fill: true,
+          backgroundColor: 'rgba(0, 0, 255, 0.1)'
+        },
+        {
+          label: 'Steps (k)',
+          data: weekdayData.map(d => d.steps / 1000),
+          borderColor: 'orange',
+          fill: true,
+          backgroundColor: 'rgba(255, 165, 0, 0.1)'
+        }
+      ]
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: 'Metrics by Day of Week'
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
+}
+
+function renderDistributionChart() {
+  const ctx = document.querySelector('#distributionChart').getContext('2d')
+  
+  // Modified getBins function for integer wellbeing values
+  const getWellbeingDistribution = (data: number[]) => {
+    const counts = new Array(11).fill(0) // 0-10 scale
+    data.filter(x => x >= 0 && x <= 10).forEach(val => {
+      counts[Math.round(val)]++
+    })
+    return {
+      counts,
+      labels: Array.from({length: 11}, (_, i) => i.toString()) // 0-10 as strings
+    }
+  }
+
+  const wellbeingDist = getWellbeingDistribution(wellbeingData.value.filter(x => x > 0))
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: wellbeingDist.labels,
+      datasets: [
+        {
+          label: 'Wellbeing',
+          data: wellbeingDist.counts,
+          backgroundColor: 'rgba(0, 255, 0, 0.5)'
+        }
+      ]
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: 'Distribution of Wellbeing Scores'
+        }
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'Wellbeing Score'
+          }
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Frequency'
+          },
+          beginAtZero: true
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
+}
+
+function renderTimeOfDayChart() {
+  const ctx = document.querySelector('#timeOfDayChart').getContext('2d')
+  const hours = Array.from({length: 24}, (_, i) => i)
+  
+  const hourlyData = hours.map(hour => {
+    const entries = trackerData.value.filter(e => new Date(e.date).getHours() === hour)
+    return {
+      wellbeing: entries.reduce((acc, e) => acc + (e.wellbeing || 0), 0) / entries.length || 0,
+      steps: entries.reduce((acc, e) => acc + (e.steps || 0), 0) / entries.length || 0
+    }
+  })
+
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: hours.map(h => `${h}:00`),
+      datasets: [
+        {
+          label: 'Wellbeing',
+          data: hourlyData.map(d => d.wellbeing),
+          borderColor: 'green',
+          tension: 0.4
+        },
+        {
+          label: 'Steps',
+          data: hourlyData.map(d => d.steps / 1000),
+          borderColor: 'orange',
+          tension: 0.4
+        }
+      ]
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: 'Metrics by Time of Day'
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
+}
+
+function renderMovingAverageChart() {
+  const ctx = document.querySelector('#movingAverageChart').getContext('2d')
+  
+  const windowSize = 7 
+  const maData = calculateMovingAverage(wellbeingData.value, windowSize)
+  
+  // Calculate min and max values
+  const minValue = Math.min(...maData)
+  const maxValue = Math.max(...maData)
+  
+  // Set y-axis range to min-2 and max+2, but keep within 0-10 bounds
+  const yMin = Math.max(0, Math.floor(minValue - 2))
+  const yMax = Math.min(10, Math.ceil(maxValue + 2))
+
+  const dataset = {
+    label: `Wellbeing ${windowSize}-day MA`,
+    data: maData,
+    borderColor: `rgba(0, ${255 - windowSize * 3}, 0)`,
+    tension: 0.4
+  }
+
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: trackerData.value.map(e => e.date),
+      datasets: [dataset]
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: 'Moving Averages'
+        }
+      },
+      scales: {
+        y: {
+          min: yMin,
+          max: yMax,
+          ticks: {
+            stepSize: 1
+          }
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
+}
+
+function renderScatterPlot() {
+  const ctx = document.querySelector('#scatterChart').getContext('2d')
+  
+  // Filter out entries with missing data
+  const validData = trackerData.value.filter(e => e.sleep_time && e.wellbeing)
+  
+  // Add jitter function
+  const jitter = (value: number, amount: number = 0.1) => {
+    return value + (Math.random() - 0.5) * amount
+  }
+  
+  // Calculate correlation
+  const correlation = calculateCorrelation(
+    validData.map(e => e.sleep_time),
+    validData.map(e => e.wellbeing)
+  )
+  
+  // Calculate linear regression
+  const xValues = validData.map(e => e.sleep_time)
+  const yValues = validData.map(e => e.wellbeing)
+  const n = xValues.length
+  const xMean = xValues.reduce((a, b) => a + b) / n
+  const yMean = yValues.reduce((a, b) => a + b) / n
+  
+  const slope = xValues.map((x, i) => (x - xMean) * (yValues[i] - yMean))
+    .reduce((a, b) => a + b) / xValues.map(x => Math.pow(x - xMean, 2))
+    .reduce((a, b) => a + b)
+  
+  const intercept = yMean - slope * xMean
+  
+  // Generate trend line points
+  const minX = Math.min(...xValues)
+  const maxX = Math.max(...xValues)
+  const trendLinePoints = [
+    { x: minX, y: slope * minX + intercept },
+    { x: maxX, y: slope * maxX + intercept }
+  ]
+
+  // Calculate y-axis range
+  const minY = Math.min(...yValues)
+  const maxY = Math.max(...yValues)
+  const yMin = Math.max(0, Math.floor(minY - 1))
+  const yMax = Math.min(10, Math.ceil(maxY + 1))
+  
+  // Helper function to describe correlation strength
+  const describeCorrelation = (corr: number) => {
+    const absCorr = Math.abs(corr)
+    if (absCorr < 0.2) return 'Very weak'
+    if (absCorr < 0.4) return 'Weak'
+    if (absCorr < 0.6) return 'Moderate'
+    if (absCorr < 0.8) return 'Strong'
+    return 'Very strong'
+  }
+
+  const correlationPercent = (correlation * 100).toFixed(1)
+  const correlationStrength = describeCorrelation(correlation)
+  const direction = slope > 0 ? 'positive' : 'negative'
+  
+  const chart = new Chart(ctx, {
+    type: 'scatter',
+    data: {
+      datasets: [
+        {
+          label: 'Sleep vs Wellbeing',
+          data: validData.map(e => ({
+            x: jitter(e.sleep_time, 0.2),
+            y: jitter(e.wellbeing, 0.2)
+          })),
+          backgroundColor: 'rgba(0, 0, 255, 0.3)',
+          pointRadius: 5
+        },
+        {
+          label: 'Trend Line',
+          data: trendLinePoints,
+          type: 'line',
+          borderColor: 'rgba(255, 0, 0, 0.5)',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: [
+            'Sleep Time vs Wellbeing',
+            `${correlationStrength} ${direction} correlation (${correlationPercent}%)`,
+            slope > 0 ? 'More sleep tends to improve wellbeing' : 'More sleep tends to decrease wellbeing'
+          ]
+        }
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'Sleep Hours'
+          },
+          min: Math.max(0, Math.floor(minX - 1)),
+          max: Math.ceil(maxX + 1)
+        },
+        y: {
+          title: {
+            display: true,
+            text: 'Wellbeing'
+          },
+          min: yMin,
+          max: yMax,
+          ticks: {
+            stepSize: 1
+          }
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
 }
 
 function renderChart() {
@@ -142,15 +579,44 @@ function renderChart() {
 
 <template>
   <d-page>
+    <!-- Fixed header section -->
     <div class="flex flex-row justify-between mb-2">
-
-      <h1 class="page-title">Moody Noodles</h1>
+      <h1 class="page-title">Moody Noodles Insights</h1>
       <div class="flex flex-row gap-1">
-
         <d-button-home/>
         <d-button-darkmode/>
       </div>
     </div>
-    <canvas id="combinedChart" class="mt-2"></canvas>
+    
+    <!-- Scrollable content section -->
+    <div class="overflow-y-auto flex-1">
+      <!-- Charts in single column -->
+      <div class="flex flex-col gap-4">
+        <!-- Main trend chart -->
+        <div class="p-4 border rounded-lg">
+          <canvas id="combinedChart"></canvas>
+        </div>
+        
+        <!-- Weekday chart -->
+        <div class="p-4 border rounded-lg">
+          <canvas id="weekdayChart"></canvas>
+        </div>
+        
+        <!-- Distribution chart -->
+        <div class="p-4 border rounded-lg">
+          <canvas id="distributionChart"></canvas>
+        </div>
+        
+        <!-- Moving average chart -->
+        <div class="p-4 border rounded-lg">
+          <canvas id="movingAverageChart"></canvas>
+        </div>
+        
+        <!-- Scatter plot -->
+        <div class="p-4 border rounded-lg">
+          <canvas id="scatterChart"></canvas>
+        </div>
+      </div>
+    </div>
   </d-page>
 </template>
