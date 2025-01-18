@@ -3,6 +3,7 @@ import {reactive, ref} from 'vue'
 import {nanoid} from 'nanoid'
 import WellbeingChart from '~/components/WellbeingChart.vue'
 import {House} from 'lucide-vue-next'
+import WellbeingEmoji from '~/components/WellbeingEmoji.vue'
 
 // Initialize Supabase
 const client = useSupabaseClient()
@@ -198,8 +199,8 @@ onMounted(() => {
     >
       <!-- Wellbeing -->
       <div>
-        <label class="tracker-title-input">Feeling of Wellbeing (0-10)</label>
-        <WellbeingChart @pointSelected="updateWellbeing" v-model:formValue="form.wellbeing"/>
+        <label class="tracker-title-input">How are you feeling today?</label>
+        <WellbeingEmoji @pointSelected="updateWellbeing" v-model:formValue="form.wellbeing"/>
       </div>
       <!-- Initial Dynamic Fields (First portion of the form) -->
       <d-tracker-input
