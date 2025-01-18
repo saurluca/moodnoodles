@@ -64,7 +64,7 @@ const sleepDuration = computed(() => {
             min="0"
             max="23"
             placeholder="HH"
-            class="w-16 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            class="w-16 border p-3 rounded text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"
           />
           <span class="text-xl font-bold">:</span>
           <input
@@ -74,7 +74,7 @@ const sleepDuration = computed(() => {
             min="0"
             max="59"
             placeholder="MM"
-            class="w-16 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            class="w-16 border p-3 rounded text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"
           />
         </div>
       </div>
@@ -88,7 +88,7 @@ const sleepDuration = computed(() => {
             min="0"
             max="23"
             placeholder="HH"
-            class="w-16 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            class="w-16 border p-3 rounded text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"
           />
           <span class="text-xl font-bold">:</span>
           <input
@@ -98,7 +98,7 @@ const sleepDuration = computed(() => {
             min="0"
             max="59"
             placeholder="MM"
-            class="w-16 border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            class="w-16 border p-3 rounded text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"
           />
         </div>
       </div>
