@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, onMounted} from 'vue'
+import {ref, onMounted, onUnmounted} from 'vue'
 import {Chart, registerables} from 'chart.js'
 import { MatrixController, MatrixElement } from 'chartjs-chart-matrix'
 
@@ -25,6 +25,20 @@ const metricOptions = [
   { value: 'gratitude_length', label: 'Gratitude Length' }
 ]
 
+// Add a ref to track chart instances
+const chartInstances = ref<{ [key: string]: Chart }>({})
+
+function destroyCharts() {
+  // Destroy each chart instance
+  Object.values(chartInstances.value).forEach(chart => {
+    if (chart) {
+      chart.destroy()
+    }
+  })
+  // Clear the instances object
+  chartInstances.value = {}
+}
+
 onMounted(async () => {
   await fetchData()
   renderCharts()
@@ -33,6 +47,7 @@ onMounted(async () => {
 async function fetchData() {
   if (!user.value) return
   const {data} = await client.from('tracker').select().eq('user_id', user.value?.id)
+  console.log("data", data)
 
   if (data) {
     trackerData.value = calculateGratitudeLength(data)
@@ -95,13 +110,8 @@ function calculateMovingAverage(data: number[], window: number): number[] {
 function renderCharts() {
   if (!trackerData.value.length) return
   
-  // Cleanup existing charts - destroy them first
-  charts.value.forEach(chart => {
-    if (chart) {
-      chart.destroy()
-    }
-  })
-  charts.value = [] // Clear the array
+  // Destroy existing charts first
+  destroyCharts()
   
   // Create new charts
   renderMainChart()
@@ -109,10 +119,13 @@ function renderCharts() {
   renderDistributionChart()
   renderMovingAverageChart()
   renderScatterPlot()
+  renderBooleanComparison()
 }
 
 function renderMainChart() {
-  const ctx = document.querySelector('#combinedChart').getContext('2d')
+  const canvas = document.querySelector('#combinedChart') as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
   
   // Calculate medians for each metric
   const medWellbeing = median(wellbeingData.value)
@@ -128,7 +141,8 @@ function renderMainChart() {
   const sleepOffset = 4 - median(sleepNorm)  // Center sleep around y=4
   const stepsOffset = 1 - median(stepsNorm)  // Center steps around y=1
   
-  const chart = new Chart(ctx, {
+  // Create new chart and store the instance
+  chartInstances.value.combined = new Chart(ctx, {
     type: 'line',
     data: {
       labels: trackerData.value.map(e => e.date),
@@ -195,7 +209,6 @@ function renderMainChart() {
       }
     }
   })
-  charts.value.push(chart)
 }
 
 function renderCorrelationChart() {
@@ -252,7 +265,10 @@ function renderCorrelationChart() {
 }
 
 function renderWeekdayChart() {
-  const ctx = document.querySelector('#weekdayChart').getContext('2d')
+  const canvas = document.querySelector('#weekdayChart') as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  
   const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   
   const weekdayData = weekdays.map(day => {
@@ -264,7 +280,8 @@ function renderWeekdayChart() {
     }
   })
 
-  const chart = new Chart(ctx, {
+  // Create new chart and store the instance
+  chartInstances.value.weekday = new Chart(ctx, {
     type: 'radar',
     data: {
       labels: weekdays,
@@ -301,11 +318,12 @@ function renderWeekdayChart() {
       }
     }
   })
-  charts.value.push(chart)
 }
 
 function renderDistributionChart() {
-  const ctx = document.querySelector('#distributionChart').getContext('2d')
+  const canvas = document.querySelector('#distributionChart') as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
   
   // Modified getBins function for integer wellbeing values
   const getWellbeingDistribution = (data: number[]) => {
@@ -321,7 +339,8 @@ function renderDistributionChart() {
 
   const wellbeingDist = getWellbeingDistribution(wellbeingData.value.filter(x => x > 0))
 
-  const chart = new Chart(ctx, {
+  // Create new chart and store the instance
+  chartInstances.value.distribution = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: wellbeingDist.labels,
@@ -357,7 +376,6 @@ function renderDistributionChart() {
       }
     }
   })
-  charts.value.push(chart)
 }
 
 function renderTimeOfDayChart() {
@@ -404,7 +422,9 @@ function renderTimeOfDayChart() {
 }
 
 function renderMovingAverageChart() {
-  const ctx = document.querySelector('#movingAverageChart').getContext('2d')
+  const canvas = document.querySelector('#movingAverageChart') as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
   
   const windowSize = 14
   const maData = calculateMovingAverage(wellbeingData.value, windowSize)
@@ -418,7 +438,8 @@ function renderMovingAverageChart() {
   const yMin = Math.max(0, Math.floor(minValue - 0.5))
   const yMax = Math.min(10, Math.ceil(maxValue + 0.5))
 
-  const chart = new Chart(ctx, {
+  // Create new chart and store the instance
+  chartInstances.value.movingAverage = new Chart(ctx, {
     type: 'line',
     data: {
       labels: trackerData.value.map(e => e.date),
@@ -447,11 +468,17 @@ function renderMovingAverageChart() {
       }
     }
   })
-  charts.value.push(chart)
 }
 
 function renderScatterPlot() {
-  const ctx = document.querySelector('#scatterChart').getContext('2d')
+  const canvas = document.querySelector('#scatterChart') as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  
+  // Only render if selected metric is not a boolean
+  if (['meditated', 'did_sport', 'sweets'].includes(selectedMetric.value)) {
+    return
+  }
   
   // Filter out entries with missing data
   const validData = trackerData.value.filter(e => e.wellbeing && e[selectedMetric.value])
@@ -509,7 +536,8 @@ function renderScatterPlot() {
   const correlationStrength = describeCorrelation(correlation)
   const direction = slope > 0 ? 'positive' : 'negative'
   
-  const chart = new Chart(ctx, {
+  // Create new chart and store the instance
+  chartInstances.value.scatter = new Chart(ctx, {
     type: 'scatter',
     data: {
       datasets: [
@@ -582,7 +610,6 @@ function renderScatterPlot() {
       }
     }
   })
-  charts.value.push(chart)
 }
 
 function renderChart() {
@@ -676,6 +703,216 @@ function calculateGratitudeLength(data) {
     gratitude_length: entry.gratitude?.length || 0
   }))
 }
+
+// Add new function to calculate averages for boolean variables
+function renderBooleanComparison() {
+  const canvas = document.querySelector('#booleanChart') as HTMLCanvasElement
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  
+  const booleanMetrics = ['meditated', 'did_sport', 'sweets']
+  const comparisons = booleanMetrics.map(metric => {
+    const trueEntries = trackerData.value.filter(e => e[metric] === true && e.wellbeing != null)
+    const falseEntries = trackerData.value.filter(e => e[metric] === false && e.wellbeing != null)
+    
+    const trueAvg = trueEntries.length > 0 
+      ? trueEntries.reduce((acc, e) => acc + e.wellbeing, 0) / trueEntries.length 
+      : null
+    const falseAvg = falseEntries.length > 0 
+      ? falseEntries.reduce((acc, e) => acc + e.wellbeing, 0) / falseEntries.length 
+      : null
+    
+    return {
+      metric,
+      trueAvg: trueAvg || 0,
+      falseAvg: falseAvg || 0,
+      difference: (trueAvg || 0) - (falseAvg || 0),
+      trueCount: trueEntries.length,
+      falseCount: falseEntries.length,
+      totalCount: trackerData.value.length,
+      nullCount: trackerData.value.filter(e => e[metric] == null).length
+    }
+  })
+
+  const allValues = comparisons.flatMap(c => [c.trueAvg, c.falseAvg].filter(v => v !== null))
+  const minValue = Math.min(...allValues)
+  const maxValue = Math.max(...allValues)
+  const yMin = Math.max(0, Math.floor(minValue - 0.5))
+  const yMax = Math.min(10, Math.ceil(maxValue + 0.5))
+
+  const labels = {
+    meditated: 'Meditation',
+    did_sport: 'Exercise',
+    sweets: 'No Sweets'
+  }
+
+  // Create new chart and store the instance
+  chartInstances.value.boolean = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: comparisons.map(c => {
+        const label = labels[c.metric]
+        const total = c.trueCount + c.falseCount
+        return `${label} (${total} days)`
+      }),
+      datasets: [
+        {
+          label: comparisons.map(c => 
+            c.metric === 'sweets' 
+              ? 'Had Sweets'
+              : 'Did Activity'
+          ),
+          data: comparisons.map(c => c.trueAvg),
+          backgroundColor: comparisons.map(c => 
+            c.metric === 'sweets' 
+              ? 'rgba(255, 0, 0, 0.5)'
+              : 'rgba(0, 255, 0, 0.5)'
+          ),
+          borderColor: comparisons.map(c => 
+            c.metric === 'sweets' 
+              ? 'rgba(255, 0, 0, 1)'
+              : 'rgba(0, 255, 0, 1)'
+          ),
+          borderWidth: 1
+        },
+        {
+          label: comparisons.map(c => 
+            c.metric === 'sweets' 
+              ? 'No Sweets'
+              : 'Skipped Activity'
+          ),
+          data: comparisons.map(c => c.falseAvg),
+          backgroundColor: comparisons.map(c => 
+            c.metric === 'sweets' 
+              ? 'rgba(0, 255, 0, 0.5)'
+              : 'rgba(255, 0, 0, 0.5)'
+          ),
+          borderColor: comparisons.map(c => 
+            c.metric === 'sweets' 
+              ? 'rgba(0, 255, 0, 1)'
+              : 'rgba(255, 0, 0, 1)'
+          ),
+          borderWidth: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        title: {
+          display: true,
+          text: 'Average Wellbeing Comparison'
+        },
+        legend: {
+          position: 'top',
+          labels: {
+            generateLabels: (chart) => {
+              return [
+                {
+                  text: 'Did Meditation/Exercise',
+                  fillStyle: 'rgba(0, 255, 0, 0.5)',
+                  strokeStyle: 'rgba(0, 255, 0, 1)',
+                  lineWidth: 1,
+                },
+                {
+                  text: 'Skipped Meditation/Exercise',
+                  fillStyle: 'rgba(255, 0, 0, 0.5)',
+                  strokeStyle: 'rgba(255, 0, 0, 1)',
+                  lineWidth: 1,
+                },
+                {
+                  text: 'Had Sweets',
+                  fillStyle: 'rgba(255, 0, 0, 0.5)',
+                  strokeStyle: 'rgba(255, 0, 0, 1)',
+                  lineWidth: 1,
+                },
+                {
+                  text: 'No Sweets',
+                  fillStyle: 'rgba(0, 255, 0, 0.5)',
+                  strokeStyle: 'rgba(0, 255, 0, 1)',
+                  lineWidth: 1,
+                }
+              ]
+            },
+            padding: 20,
+            boxWidth: 15,
+            boxHeight: 15,
+          },
+          maxWidth: 400,
+          maxHeight: 100,
+          align: 'center',
+        },
+        legendItem: {
+          display: true,
+          position: 'top',
+          align: 'center',
+          labels: {
+            boxWidth: 15,
+            padding: 15,
+            generateLabels: (chart) => {
+              const width = chart.width || 0
+              const itemWidth = width / 2.5 // Adjust this value to control spacing
+              return chart.legend.legendItems.map((item, index) => ({
+                ...item,
+                x: (index % 2) * itemWidth + itemWidth / 2,
+                y: Math.floor(index / 2) * 25 + 10, // Adjust 25 to control vertical spacing
+              }))
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const comparison = comparisons[context.dataIndex]
+              const value = context.raw as number
+              const isSweets = comparison.metric === 'sweets'
+              
+              let label
+              const totalDays = comparison.trueCount + comparison.falseCount
+              
+              if (context.datasetIndex === 0) {
+                // First dataset (Did Activity/Had Sweets)
+                label = isSweets ? 'Had Sweets' : 'Did Activity'
+                return [
+                  `${label}: ${comparison.trueCount} out of ${totalDays} days`,
+                  `Average wellbeing: ${value.toFixed(2)}`,
+                  `Missing data: ${comparison.nullCount} days`
+                ]
+              } else {
+                // Second dataset (Skipped Activity/No Sweets)
+                label = isSweets ? 'No Sweets' : 'Skipped Activity'
+                return [
+                  `${label}: ${comparison.falseCount} out of ${totalDays} days`,
+                  `Average wellbeing: ${value.toFixed(2)}`,
+                  `Missing data: ${comparison.nullCount} days`,
+                  `Difference: ${comparison.difference.toFixed(2)}`
+                ]
+              }
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          min: yMin,
+          max: yMax,
+          ticks: {
+            stepSize: 0.5
+          },
+          title: {
+            display: true,
+            text: 'Average Wellbeing'
+          }
+        }
+      }
+    }
+  })
+}
+
+// Clean up when component is unmounted
+onUnmounted(() => {
+  destroyCharts()
+})
 </script>
 
 <template>
@@ -731,6 +968,11 @@ function calculateGratitudeLength(data) {
             </select>
           </div>
           <canvas id="scatterChart"></canvas>
+        </div>
+        
+        <!-- Boolean comparison chart -->
+        <div class="p-4 border rounded-lg">
+          <canvas id="booleanChart"></canvas>
         </div>
       </div>
     </div>
