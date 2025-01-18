@@ -18,6 +18,13 @@ const stepsData = ref([])
 const charts = ref([])
 const correlationData = ref(null)
 
+const selectedMetric = ref('sleep_time')
+const metricOptions = [
+  { value: 'sleep_time', label: 'Sleep Time' },
+  { value: 'steps', label: 'Steps' },
+  { value: 'gratitude_length', label: 'Gratitude Length' }
+]
+
 onMounted(async () => {
   await fetchData()
   renderCharts()
@@ -28,7 +35,7 @@ async function fetchData() {
   const {data} = await client.from('tracker').select().eq('user_id', user.value?.id)
 
   if (data) {
-    trackerData.value = data
+    trackerData.value = calculateGratitudeLength(data)
     wellbeingData.value = data.map(e => e.wellbeing ?? 0)
     sleepData.value = data.map(e => e.sleep_time ?? 0)
     stepsData.value = data.map(e => e.steps ?? 0)
@@ -88,36 +95,107 @@ function calculateMovingAverage(data: number[], window: number): number[] {
 function renderCharts() {
   if (!trackerData.value.length) return
   
-  const chartContainers = [
-    'trendChart',
-    'weekdayChart',
-    'distributionChart',
-    'movingAverageChart',
-    'scatterChart'
-  ]
+  // Cleanup existing charts - destroy them first
+  charts.value.forEach(chart => {
+    if (chart) {
+      chart.destroy()
+    }
+  })
+  charts.value = [] // Clear the array
   
-  // Cleanup existing charts
-  charts.value.forEach(chart => chart.destroy())
-  charts.value = []
-
-  // 1. Main Trend Chart (existing one)
+  // Create new charts
   renderMainChart()
-  
-  // 2. Weekday Analysis
   renderWeekdayChart()
-  
-  // 3. Distribution Chart
   renderDistributionChart()
-  
-  // 4. Moving Averages
   renderMovingAverageChart()
-  
-  // 5. Scatter Plot
   renderScatterPlot()
 }
 
 function renderMainChart() {
-  // ... existing renderChart code ...
+  const ctx = document.querySelector('#combinedChart').getContext('2d')
+  
+  // Calculate medians for each metric
+  const medWellbeing = median(wellbeingData.value)
+  const medSleep = median(sleepData.value)
+  const medSteps = median(stepsData.value)
+  
+  // Make sleep changes more visible by reducing normalization factor
+  const sleepNorm = normalizeLog(sleepData.value, medSleep, 0.15)
+  const stepsNorm = normalizeLinear(stepsData.value, medSteps, medSteps)
+  
+  // Set offsets based on desired vertical positions (using 3-unit spacing)
+  const wellbeingOffset = 7 - medWellbeing  // Center wellbeing around y=7
+  const sleepOffset = 4 - median(sleepNorm)  // Center sleep around y=4
+  const stepsOffset = 1 - median(stepsNorm)  // Center steps around y=1
+  
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: trackerData.value.map(e => e.date),
+      datasets: [
+        {
+          label: 'Wellbeing',
+          data: wellbeingData.value.map(v => v + wellbeingOffset),
+          borderColor: 'green',
+          tension: 0.3,
+          pointRadius: 0
+        },
+        {
+          label: 'Sleep h (Log Scale)',
+          data: sleepNorm.map(v => v + sleepOffset),
+          borderColor: 'blue',
+          tension: 0.3,
+          pointRadius: 0
+        },
+        {
+          label: 'Steps (Normalized)',
+          data: stepsNorm.map(v => v + stepsOffset),
+          borderColor: 'orange',
+          tension: 0.3,
+          pointRadius: 0
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          min: 0,
+          max: 10,
+          ticks: {
+            callback: (value) => {
+              // Show median values at their centered positions
+              if (value === 7) return `Wellbeing: ${medWellbeing.toFixed(1)}`
+              if (value === 4) return `Sleep: ${medSleep.toFixed(1)}h`
+              if (value === 1) return `Steps: ${medSteps.toFixed(0)}`
+              return ''
+            },
+            autoSkip: false
+          }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const value = context.raw as number
+              const datasetLabel = context.dataset.label
+              if (datasetLabel === 'Wellbeing') {
+                return `Wellbeing: ${(value - wellbeingOffset).toFixed(1)}`
+              }
+              if (datasetLabel === 'Sleep h (Log Scale)') {
+                const realSleep = (value - sleepOffset)
+                return `Sleep: ${realSleep.toFixed(1)}h`
+              }
+              const realSteps = (value - stepsOffset)
+              return `Steps: ${realSteps.toFixed(0)}k`
+            }
+          }
+        }
+      }
+    }
+  })
+  charts.value.push(chart)
 }
 
 function renderCorrelationChart() {
@@ -328,35 +406,34 @@ function renderTimeOfDayChart() {
 function renderMovingAverageChart() {
   const ctx = document.querySelector('#movingAverageChart').getContext('2d')
   
-  const windowSize = 7 
+  const windowSize = 14
   const maData = calculateMovingAverage(wellbeingData.value, windowSize)
   
   // Calculate min and max values
   const minValue = Math.min(...maData)
   const maxValue = Math.max(...maData)
   
-  // Set y-axis range to min-2 and max+2, but keep within 0-10 bounds
-  const yMin = Math.max(0, Math.floor(minValue - 2))
-  const yMax = Math.min(10, Math.ceil(maxValue + 2))
-
-  const dataset = {
-    label: `Wellbeing ${windowSize}-day MA`,
-    data: maData,
-    borderColor: `rgba(0, ${255 - windowSize * 3}, 0)`,
-    tension: 0.4
-  }
+  // Reduce the y-axis range to show more detail
+  // Use 0.5 instead of 1 for padding
+  const yMin = Math.max(0, Math.floor(minValue - 0.5))
+  const yMax = Math.min(10, Math.ceil(maxValue + 0.5))
 
   const chart = new Chart(ctx, {
     type: 'line',
     data: {
       labels: trackerData.value.map(e => e.date),
-      datasets: [dataset]
+      datasets: [{
+        label: `${windowSize}-day Moving Average`,
+        data: maData,
+        borderColor: 'green',
+        tension: 0.4
+      }]
     },
     options: {
       plugins: {
         title: {
           display: true,
-          text: 'Moving Averages'
+          text: 'Wellbeing Trend (Moving Average)'
         }
       },
       scales: {
@@ -364,7 +441,7 @@ function renderMovingAverageChart() {
           min: yMin,
           max: yMax,
           ticks: {
-            stepSize: 1
+            stepSize: 0.5  // Changed to 0.5 for more detail
           }
         }
       }
@@ -377,21 +454,22 @@ function renderScatterPlot() {
   const ctx = document.querySelector('#scatterChart').getContext('2d')
   
   // Filter out entries with missing data
-  const validData = trackerData.value.filter(e => e.sleep_time && e.wellbeing)
+  const validData = trackerData.value.filter(e => e.wellbeing && e[selectedMetric.value])
   
-  // Add jitter function
-  const jitter = (value: number, amount: number = 0.1) => {
-    return value + (Math.random() - 0.5) * amount
+  // Add jitter function with dynamic amount based on metric
+  const jitter = (value: number, metric: string) => {
+    const jitterAmount = metric === 'gratitude_length' ? 2 : 0.2
+    return value + (Math.random() - 0.5) * jitterAmount
   }
   
   // Calculate correlation
   const correlation = calculateCorrelation(
-    validData.map(e => e.sleep_time),
+    validData.map(e => e[selectedMetric.value]),
     validData.map(e => e.wellbeing)
   )
   
   // Calculate linear regression
-  const xValues = validData.map(e => e.sleep_time)
+  const xValues = validData.map(e => e[selectedMetric.value])
   const yValues = validData.map(e => e.wellbeing)
   const n = xValues.length
   const xMean = xValues.reduce((a, b) => a + b) / n
@@ -436,10 +514,10 @@ function renderScatterPlot() {
     data: {
       datasets: [
         {
-          label: 'Sleep vs Wellbeing',
+          label: `${metricOptions.find(m => m.value === selectedMetric.value)?.label} vs Wellbeing`,
           data: validData.map(e => ({
-            x: jitter(e.sleep_time, 0.2),
-            y: jitter(e.wellbeing, 0.2)
+            x: jitter(e[selectedMetric.value], selectedMetric.value),
+            y: jitter(e.wellbeing, 'wellbeing')
           })),
           backgroundColor: 'rgba(0, 0, 255, 0.3)',
           pointRadius: 5
@@ -460,20 +538,35 @@ function renderScatterPlot() {
         title: {
           display: true,
           text: [
-            'Sleep Time vs Wellbeing',
+            `${metricOptions.find(m => m.value === selectedMetric.value)?.label} vs Wellbeing`,
             `${correlationStrength} ${direction} correlation (${correlationPercent}%)`,
-            slope > 0 ? 'More sleep tends to improve wellbeing' : 'More sleep tends to decrease wellbeing'
+            slope > 0 
+              ? `Higher values tend to correlate with better wellbeing` 
+              : `Higher values tend to correlate with lower wellbeing`
           ]
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const point = context.raw
+              if (selectedMetric.value === 'gratitude_length') {
+                return `Length: ${Math.round(point.x)} chars, Wellbeing: ${point.y.toFixed(1)}`
+              }
+              return `${context.dataset.label}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`
+            }
+          }
         }
       },
       scales: {
         x: {
           title: {
             display: true,
-            text: 'Sleep Hours'
+            text: selectedMetric.value === 'gratitude_length' 
+              ? 'Characters in Gratitude Entry'
+              : metricOptions.find(m => m.value === selectedMetric.value)?.label
           },
-          min: Math.max(0, Math.floor(minX - 1)),
-          max: Math.ceil(maxX + 1)
+          min: Math.max(0, Math.floor(minX - (selectedMetric.value === 'gratitude_length' ? 10 : 1))),
+          max: Math.ceil(maxX + (selectedMetric.value === 'gratitude_length' ? 10 : 1))
         },
         y: {
           title: {
@@ -575,6 +668,14 @@ function renderChart() {
     }
   })
 }
+
+// Add helper function to calculate text length
+function calculateGratitudeLength(data) {
+  return data.map(entry => ({
+    ...entry,
+    gratitude_length: entry.gratitude?.length || 0
+  }))
+}
 </script>
 
 <template>
@@ -612,8 +713,23 @@ function renderChart() {
           <canvas id="movingAverageChart"></canvas>
         </div>
         
-        <!-- Scatter plot -->
+        <!-- Scatter plot with selector -->
         <div class="p-4 border rounded-lg">
+          <div class="mb-2">
+            <select 
+              v-model="selectedMetric"
+              class="p-2 rounded border dark:bg-slate-700 dark:border-slate-600"
+              @change="renderCharts"
+            >
+              <option 
+                v-for="option in metricOptions" 
+                :key="option.value" 
+                :value="option.value"
+              >
+                {{ option.label }} vs Wellbeing
+              </option>
+            </select>
+          </div>
           <canvas id="scatterChart"></canvas>
         </div>
       </div>
