@@ -5,6 +5,7 @@ import WellbeingChart from '~/components/WellbeingChart.vue'
 import {House} from 'lucide-vue-next'
 import WellbeingEmoji from '~/components/WellbeingEmoji.vue'
 import SleepTimeInput from '~/components/SleepTimeInput.vue'
+import FormattedEntryDisplay from '~/components/FormattedEntryDisplay.vue'
 
 // Initialize Supabase
 const client = useSupabaseClient()
@@ -63,13 +64,28 @@ function parseBoolean(val) {
 async function fetchData() {
   if (!user.value) return
   try {
-    const {data} = await client.from('tracker').select().eq('date', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0])
-    console.log(data)
+    const {data} = await client
+      .from('tracker')
+      .select()
+      .eq('date', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0])
+    
     if (data && data[0]) {
+      // Extract hours and minutes from sleep_start and sleep_end
+      if (data[0].sleep_start) {
+        const [startHour, startMinute] = data[0].sleep_start.split(':')
+        data[0].sleep_start_hour = startHour
+        data[0].sleep_start_minute = startMinute
+      }
+      if (data[0].sleep_end) {
+        const [endHour, endMinute] = data[0].sleep_end.split(':')
+        data[0].sleep_end_hour = endHour
+        data[0].sleep_end_minute = endMinute
+      }
+      
       Object.assign(form, data[0])
     }
-  } catch {
-    console.log('error')
+  } catch (err) {
+    console.error('Error fetching data:', err)
   }
 }
 
@@ -255,29 +271,22 @@ onMounted(() => {
     <!-- Success Dialog -->
     <div
         v-if="showSuccessDialog"
-        class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
+        class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 p-4"
     >
-      <div class="bg-white p-6 rounded-lg shadow-lg max-w-md text-center">
-        <h2 class="text-2xl font-bold mb-4">Good Job!</h2>
-        <p>Your entry has been successfully saved.</p>
-        <div class="mt-4 text-left p-4 border rounded bg-green-50">
-          <p><strong>Wellbeing:</strong> {{ form.wellbeing }}/10</p>
-          <p><strong>Gratitude:</strong> {{ form.gratitude }}</p>
-          <p><strong>Insight:</strong> {{ form.insight }}</p>
-          <p><strong>Sleep:</strong> {{ form.sleep_time }} hours</p>
-          <p><strong>Steps:</strong> {{ form.steps }}</p>
-          <p><strong>Breadstuff:</strong> {{ form.breadstuff }}</p>
-          <p><strong>Meditated:</strong> {{ form.meditated }}</p>
-          <p><strong>Walk:</strong> {{ form.walk }}</p>
-          <p><strong>Did Sport:</strong> {{ form.did_sport }}</p>
-          <p><strong>Sweets:</strong> {{ form.sweets }}</p>
-
-          <p><strong>Period:</strong> {{ form.period }}</p>
+      <div class="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-lg w-full max-w-md max-h-[90vh] flex flex-col">
+        <h2 class="text-2xl font-bold mb-4 dark:text-white">Good Job!</h2>
+        <p class="dark:text-gray-300">Your entry has been successfully saved.</p>
+        
+        <div class="mt-4 overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent">
+          <FormattedEntryDisplay :form="form" />
         </div>
-          <button @click="showSuccessDialog = false" class="bg-blue-500 text-white p-2 mt-4 rounded w-full">
-            Home
-          </button>
 
+        <button 
+          @click="showSuccessDialog = false"
+          class="bg-blue-500 text-white p-2 mt-4 rounded w-full hover:bg-blue-600 transition-colors"
+        >
+          Close
+        </button>
       </div>
     </div>
 
