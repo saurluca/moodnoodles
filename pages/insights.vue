@@ -47,7 +47,6 @@ onMounted(async () => {
 async function fetchData() {
   if (!user.value) return
   const {data} = await client.from('tracker').select().eq('user_id', user.value?.id)
-  console.log("data", data)
 
   if (data) {
     trackerData.value = calculateGratitudeLength(data)
@@ -927,7 +926,7 @@ onUnmounted(() => {
     </div>
     
     <!-- Scrollable content section -->
-    <div class="overflow-y-auto flex-1">
+    <div class="overflow-y-auto flex-1 p-1 px-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600 dark:hover:scrollbar-thumb-gray-500">
       <!-- Charts in single column -->
       <div class="flex flex-col gap-4">
         <!-- Main trend chart -->
