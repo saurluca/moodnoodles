@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, onMounted, onUnmounted} from 'vue'
+import {ref, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
 import {Chart, registerables} from 'chart.js'
 import { MatrixController, MatrixElement } from 'chartjs-chart-matrix'
 
@@ -25,18 +25,29 @@ const metricOptions = [
   { value: 'gratitude_length', label: 'Gratitude Length' }
 ]
 
-// Add a ref to track chart instances
-const chartInstances = ref<{ [key: string]: Chart }>({})
+// Update chart initialization
+const chartInstances = ref<{ [key: string]: Chart | null }>({})
 
+// More robust cleanup function
 function destroyCharts() {
-  // Destroy each chart instance
-  Object.values(chartInstances.value).forEach(chart => {
-    if (chart) {
-      chart.destroy()
+  try {
+    Object.entries(chartInstances.value).forEach(([key, chart]) => {
+      if (chart && chart instanceof Chart) {
+        chart.destroy()
+      }
+    })
+    // Reset all instances to null
+    chartInstances.value = {
+      combined: null,
+      weekday: null,
+      distribution: null,
+      movingAverage: null,
+      scatter: null,
+      boolean: null
     }
-  })
-  // Clear the instances object
-  chartInstances.value = {}
+  } catch (error) {
+    console.error('Error destroying charts:', error)
+  }
 }
 
 onMounted(async () => {
@@ -107,107 +118,134 @@ function calculateMovingAverage(data: number[], window: number): number[] {
 }
 
 function renderCharts() {
-  if (!trackerData.value.length) return
+  if (!trackerData.value.length) {
+    console.warn('No tracker data available')
+    return
+  }
   
-  // Destroy existing charts first
-  destroyCharts()
-  
-  // Create new charts
-  renderMainChart()
-  renderWeekdayChart()
-  renderDistributionChart()
-  renderMovingAverageChart()
-  renderScatterPlot()
-  renderBooleanComparison()
+  try {
+    // Ensure clean state before rendering
+    destroyCharts()
+    
+    // Create new charts
+    renderMainChart()
+    renderWeekdayChart()
+    renderDistributionChart()
+    renderMovingAverageChart()
+    renderScatterPlot()
+    renderBooleanComparison()
+  } catch (error) {
+    console.error('Error rendering charts:', error)
+    // Clean up on error
+    destroyCharts()
+  }
 }
 
 function renderMainChart() {
   const canvas = document.querySelector('#combinedChart') as HTMLCanvasElement
+  if (!canvas) {
+    console.warn('Combined chart canvas not found')
+    return
+  }
+
   const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  
-  // Calculate medians for each metric
-  const medWellbeing = median(wellbeingData.value)
-  const medSleep = median(sleepData.value)
-  const medSteps = median(stepsData.value)
-  
-  // Make sleep changes more visible by reducing normalization factor
-  const sleepNorm = normalizeLog(sleepData.value, medSleep, 0.15)
-  const stepsNorm = normalizeLinear(stepsData.value, medSteps, medSteps)
-  
-  // Set offsets based on desired vertical positions (using 3-unit spacing)
-  const wellbeingOffset = 7 - medWellbeing  // Center wellbeing around y=7
-  const sleepOffset = 4 - median(sleepNorm)  // Center sleep around y=4
-  const stepsOffset = 1 - median(stepsNorm)  // Center steps around y=1
-  
-  // Create new chart and store the instance
-  chartInstances.value.combined = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: trackerData.value.map(e => e.date),
-      datasets: [
-        {
-          label: 'Wellbeing',
-          data: wellbeingData.value.map(v => v + wellbeingOffset),
-          borderColor: 'green',
-          tension: 0.3,
-          pointRadius: 0
-        },
-        {
-          label: 'Sleep h (Log Scale)',
-          data: sleepNorm.map(v => v + sleepOffset),
-          borderColor: 'blue',
-          tension: 0.3,
-          pointRadius: 0
-        },
-        {
-          label: 'Steps (Normalized)',
-          data: stepsNorm.map(v => v + stepsOffset),
-          borderColor: 'orange',
-          tension: 0.3,
-          pointRadius: 0
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      scales: {
-        y: {
-          min: 0,
-          max: 10,
-          ticks: {
-            callback: (value) => {
-              // Show median values at their centered positions
-              if (value === 7) return `Wellbeing: ${medWellbeing.toFixed(1)}`
-              if (value === 4) return `Sleep: ${medSleep.toFixed(1)}h`
-              if (value === 1) return `Steps: ${medSteps.toFixed(0)}`
-              return ''
-            },
-            autoSkip: false
+  if (!ctx) {
+    console.warn('Could not get 2d context for combined chart')
+    return
+  }
+
+  // Destroy existing chart if it exists
+  if (chartInstances.value.combined) {
+    chartInstances.value.combined.destroy()
+    delete chartInstances.value.combined
+  }
+
+  try {
+    // Calculate medians for each metric
+    const medWellbeing = median(wellbeingData.value)
+    const medSleep = median(sleepData.value)
+    const medSteps = median(stepsData.value)
+    
+    // Make sleep changes more visible by reducing normalization factor
+    const sleepNorm = normalizeLog(sleepData.value, medSleep, 0.15)
+    const stepsNorm = normalizeLinear(stepsData.value, medSteps, medSteps)
+    
+    // Set offsets based on desired vertical positions (using 3-unit spacing)
+    const wellbeingOffset = 7 - medWellbeing  // Center wellbeing around y=7
+    const sleepOffset = 4 - median(sleepNorm)  // Center sleep around y=4
+    const stepsOffset = 1 - median(stepsNorm)  // Center steps around y=1
+    
+    // Create new chart and store the instance
+    chartInstances.value.combined = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: trackerData.value.map(e => e.date),
+        datasets: [
+          {
+            label: 'Wellbeing',
+            data: wellbeingData.value.map(v => v + wellbeingOffset),
+            borderColor: 'green',
+            tension: 0.3,
+            pointRadius: 0
+          },
+          {
+            label: 'Sleep h (Log Scale)',
+            data: sleepNorm.map(v => v + sleepOffset),
+            borderColor: 'blue',
+            tension: 0.3,
+            pointRadius: 0
+          },
+          {
+            label: 'Steps (Normalized)',
+            data: stepsNorm.map(v => v + stepsOffset),
+            borderColor: 'orange',
+            tension: 0.3,
+            pointRadius: 0
           }
-        }
+        ]
       },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label: (context) => {
-              const value = context.raw as number
-              const datasetLabel = context.dataset.label
-              if (datasetLabel === 'Wellbeing') {
-                return `Wellbeing: ${(value - wellbeingOffset).toFixed(1)}`
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            min: 0,
+            max: 10,
+            ticks: {
+              callback: (value) => {
+                // Show median values at their centered positions
+                if (value === 7) return `Wellbeing: ${medWellbeing.toFixed(1)}`
+                if (value === 4) return `Sleep: ${medSleep.toFixed(1)}h`
+                if (value === 1) return `Steps: ${medSteps.toFixed(0)}`
+                return ''
+              },
+              autoSkip: false
+            }
+          }
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: (context) => {
+                const value = context.raw as number
+                const datasetLabel = context.dataset.label
+                if (datasetLabel === 'Wellbeing') {
+                  return `Wellbeing: ${(value - wellbeingOffset).toFixed(1)}`
+                }
+                if (datasetLabel === 'Sleep h (Log Scale)') {
+                  const realSleep = (value - sleepOffset)
+                  return `Sleep: ${realSleep.toFixed(1)}h`
+                }
+                const realSteps = (value - stepsOffset)
+                return `Steps: ${realSteps.toFixed(0)}k`
               }
-              if (datasetLabel === 'Sleep h (Log Scale)') {
-                const realSleep = (value - sleepOffset)
-                return `Sleep: ${realSleep.toFixed(1)}h`
-              }
-              const realSteps = (value - stepsOffset)
-              return `Steps: ${realSteps.toFixed(0)}k`
             }
           }
         }
       }
-    }
-  })
+    })
+  } catch (error) {
+    console.error('Error creating combined chart:', error)
+  }
 }
 
 function renderCorrelationChart() {
@@ -470,145 +508,120 @@ function renderMovingAverageChart() {
 }
 
 function renderScatterPlot() {
-  const canvas = document.querySelector('#scatterChart') as HTMLCanvasElement
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  
-  // Only render if selected metric is not a boolean
+  // Skip if metric is boolean
   if (['meditated', 'did_sport', 'sweets'].includes(selectedMetric.value)) {
     return
   }
-  
-  // Filter out entries with missing data
-  const validData = trackerData.value.filter(e => e.wellbeing && e[selectedMetric.value])
-  
-  // Add jitter function with dynamic amount based on metric
-  const jitter = (value: number, metric: string) => {
-    const jitterAmount = metric === 'gratitude_length' ? 2 : 0.2
-    return value + (Math.random() - 0.5) * jitterAmount
+
+  const canvas = document.querySelector('#scatterChart') as HTMLCanvasElement
+  if (!canvas) {
+    console.warn('Scatter plot canvas not found')
+    return
   }
-  
-  // Calculate correlation
-  const correlation = calculateCorrelation(
-    validData.map(e => e[selectedMetric.value]),
-    validData.map(e => e.wellbeing)
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    console.warn('Could not get 2d context for scatter plot')
+    return
+  }
+
+  // Ensure we have valid data
+  const validData = trackerData.value.filter(e => 
+    e.wellbeing != null && 
+    e[selectedMetric.value] != null
   )
-  
-  // Calculate linear regression
-  const xValues = validData.map(e => e[selectedMetric.value])
-  const yValues = validData.map(e => e.wellbeing)
-  const n = xValues.length
-  const xMean = xValues.reduce((a, b) => a + b) / n
-  const yMean = yValues.reduce((a, b) => a + b) / n
-  
-  const slope = xValues.map((x, i) => (x - xMean) * (yValues[i] - yMean))
-    .reduce((a, b) => a + b) / xValues.map(x => Math.pow(x - xMean, 2))
-    .reduce((a, b) => a + b)
-  
-  const intercept = yMean - slope * xMean
-  
-  // Generate trend line points
-  const minX = Math.min(...xValues)
-  const maxX = Math.max(...xValues)
-  const trendLinePoints = [
-    { x: minX, y: slope * minX + intercept },
-    { x: maxX, y: slope * maxX + intercept }
-  ]
 
-  // Calculate y-axis range
-  const minY = Math.min(...yValues)
-  const maxY = Math.max(...yValues)
-  const yMin = Math.max(0, Math.floor(minY - 1))
-  const yMax = Math.min(10, Math.ceil(maxY + 1))
-  
-  // Helper function to describe correlation strength
-  const describeCorrelation = (corr: number) => {
-    const absCorr = Math.abs(corr)
-    if (absCorr < 0.2) return 'Very weak'
-    if (absCorr < 0.4) return 'Weak'
-    if (absCorr < 0.6) return 'Moderate'
-    if (absCorr < 0.8) return 'Strong'
-    return 'Very strong'
+  if (!validData.length) {
+    console.warn('No valid data for scatter plot')
+    return
   }
 
-  const correlationPercent = (correlation * 100).toFixed(1)
-  const correlationStrength = describeCorrelation(correlation)
-  const direction = slope > 0 ? 'positive' : 'negative'
-  
-  // Create new chart and store the instance
-  chartInstances.value.scatter = new Chart(ctx, {
-    type: 'scatter',
-    data: {
-      datasets: [
-        {
-          label: `${metricOptions.find(m => m.value === selectedMetric.value)?.label} vs Wellbeing`,
-          data: validData.map(e => ({
-            x: jitter(e[selectedMetric.value], selectedMetric.value),
-            y: jitter(e.wellbeing, 'wellbeing')
-          })),
-          backgroundColor: 'rgba(0, 0, 255, 0.3)',
-          pointRadius: 5
-        },
-        {
-          label: 'Trend Line',
-          data: trendLinePoints,
-          type: 'line',
-          borderColor: 'rgba(255, 0, 0, 0.5)',
-          borderWidth: 2,
-          pointRadius: 0,
-          fill: false
-        }
-      ]
-    },
-    options: {
-      plugins: {
-        title: {
-          display: true,
-          text: [
-            `${metricOptions.find(m => m.value === selectedMetric.value)?.label} vs Wellbeing`,
-            `${correlationStrength} ${direction} correlation (${correlationPercent}%)`,
-            slope > 0 
-              ? `Higher values tend to correlate with better wellbeing` 
-              : `Higher values tend to correlate with lower wellbeing`
-          ]
-        },
-        tooltip: {
-          callbacks: {
-            label: (context) => {
-              const point = context.raw
-              if (selectedMetric.value === 'gratitude_length') {
-                return `Length: ${Math.round(point.x)} chars, Wellbeing: ${point.y.toFixed(1)}`
+  // Destroy existing chart if it exists
+  if (chartInstances.value.scatter) {
+    chartInstances.value.scatter.destroy()
+    delete chartInstances.value.scatter
+  }
+
+  try {
+    chartInstances.value.scatter = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: `${metricOptions.find(m => m.value === selectedMetric.value)?.label} vs Wellbeing`,
+            data: validData.map(e => ({
+              x: e[selectedMetric.value],
+              y: e.wellbeing
+            })),
+            backgroundColor: 'rgba(0, 0, 255, 0.3)',
+            pointRadius: 5
+          },
+          {
+            label: 'Trend Line',
+            data: [
+              { x: Math.min(...validData.map(e => e[selectedMetric.value])), y: 0 },
+              { x: Math.max(...validData.map(e => e[selectedMetric.value])), y: 0 }
+            ],
+            type: 'line',
+            borderColor: 'rgba(255, 0, 0, 0.5)',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        plugins: {
+          title: {
+            display: true,
+            text: [
+              `${metricOptions.find(m => m.value === selectedMetric.value)?.label} vs Wellbeing`,
+              `Correlation: ${calculateCorrelation(
+                validData.map(e => e[selectedMetric.value]),
+                validData.map(e => e.wellbeing)
+              ).toFixed(2)}`
+            ]
+          },
+          tooltip: {
+            callbacks: {
+              label: (context) => {
+                const point = context.raw
+                return `${context.dataset.label}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`
               }
-              return `${context.dataset.label}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: selectedMetric.value === 'gratitude_length' 
+                ? 'Characters in Gratitude Entry'
+                : metricOptions.find(m => m.value === selectedMetric.value)?.label
+            },
+            min: Math.min(...validData.map(e => e[selectedMetric.value])),
+            max: Math.max(...validData.map(e => e[selectedMetric.value])),
+            ticks: {
+              stepSize: 1
+            }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Wellbeing'
+            },
+            min: 0,
+            max: 10,
+            ticks: {
+              stepSize: 1
             }
           }
         }
-      },
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: selectedMetric.value === 'gratitude_length' 
-              ? 'Characters in Gratitude Entry'
-              : metricOptions.find(m => m.value === selectedMetric.value)?.label
-          },
-          min: Math.max(0, Math.floor(minX - (selectedMetric.value === 'gratitude_length' ? 10 : 1))),
-          max: Math.ceil(maxX + (selectedMetric.value === 'gratitude_length' ? 10 : 1))
-        },
-        y: {
-          title: {
-            display: true,
-            text: 'Wellbeing'
-          },
-          min: yMin,
-          max: yMax,
-          ticks: {
-            stepSize: 1
-          }
-        }
       }
-    }
-  })
+    })
+  } catch (error) {
+    console.error('Error creating scatter plot:', error)
+  }
 }
 
 function renderChart() {
@@ -908,8 +921,8 @@ function renderBooleanComparison() {
   })
 }
 
-// Clean up when component is unmounted
-onUnmounted(() => {
+// Add cleanup to page leave
+onBeforeUnmount(() => {
   destroyCharts()
 })
 </script>
