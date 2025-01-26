@@ -29,6 +29,7 @@ const form = reactive({
   sweets: null,
   walk: null,
   breadstuff: null,
+  power_nap: null,
 })
 
 // Dialog and Submission States
@@ -50,7 +51,7 @@ const fields = [
   {title: 'Did Sport', slug: 'did_sport', type: 'bool'},
   {title: 'Ate Sweets', slug: 'sweets', type: 'bool'},
   {title: 'Period', slug: 'period', type: 'bool'},
-
+  {title: 'Power Nap', slug: 'power_nap', type: 'bool'},
 ]
 
 // Convert "yes"/"no" to boolean or null
@@ -115,6 +116,7 @@ function prepareFormData() {
     period: parseBoolean(form.period),
     sweets: parseBoolean(form.sweets),
     breadstuff: (form.breadstuff ?? '').trim() || null,
+    power_nap: parseBoolean(form.power_nap),
     date: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0],
   }
 }
@@ -233,7 +235,7 @@ onMounted(() => {
       <SleepTimeInput :form="form" />
       <!-- Initial Dynamic Fields (First portion of the form) -->
       <d-tracker-input
-          v-for="item in fields.slice(0, fields.length - 5)"
+          v-for="item in fields.slice(0, fields.length - 6)"
           :key="item.slug"
           :form="form"
           :title="item.title"
@@ -242,10 +244,10 @@ onMounted(() => {
           :options="item.options"
       />
 
-      <!-- Table for the Last Five Items -->
+      <!-- Table for the Last Six Items -->
       <table class="min-w-full border-collapse border border-gray-200 mt-4">
         <tbody>
-        <tr v-for="item in fields.slice(-5)"
+        <tr v-for="item in fields.slice(-6)"
             :key="item.slug"
             :form="form"
             :title="item.title"
