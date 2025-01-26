@@ -22,6 +22,8 @@ defineProps({
     <FormattedRow label="Sport" :value="form.did_sport" />
     <FormattedRow label="Sweets" :value="form.sweets" />
     <FormattedRow label="Period" :value="form.period" />
+    <FormattedRow label="Powernap" :value="form.power_nap" />
+    <FormattedRow label="Media" :value="form.media.join(', ')" />
     <FormattedRow label="Gratitude" :value="form.gratitude" :isFullWidth="true" />
     <FormattedRow label="Insight" :value="form.insight" :isFullWidth="true" />
   </div>
