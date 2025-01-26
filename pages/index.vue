@@ -6,6 +6,7 @@ import {House} from 'lucide-vue-next'
 import WellbeingEmoji from '~/components/WellbeingEmoji.vue'
 import SleepTimeInput from '~/components/SleepTimeInput.vue'
 import FormattedEntryDisplay from '~/components/FormattedEntryDisplay.vue'
+import DMediaTracker from '~/components/d-media-tracker.vue'
 
 // Initialize Supabase
 const client = useSupabaseClient()
@@ -30,6 +31,7 @@ const form = reactive({
   walk: null,
   breadstuff: null,
   power_nap: null,
+  media: [],
 })
 
 // Dialog and Submission States
@@ -45,6 +47,7 @@ const fields = [
   {title: 'What are you grateful for today?', slug: 'gratitude', type: 'text'},
   {title: 'What did you learn today?', slug: 'insight', type: 'text'},
   {title: 'Steps taken', slug: 'steps', type: 'number'},
+  {title: 'Media Consumed', slug: 'media', type: 'media'},
   {title: 'Bread eaten', slug: 'breadstuff', type: 'select', options: ['Bread', 'Buns', 'Both', 'None']},
   {title: 'Meditated', slug: 'meditated', type: 'bool'},
   {title: 'Went for a walk', slug: 'walk', type: 'bool'},
@@ -61,17 +64,122 @@ function parseBoolean(val) {
   return null
 }
 
-// this is new. why not work?
+// Update handleMediaEntries function
+async function handleMediaEntries(date) {
+  if (!user.value) return
+
+  try {
+    // If media array is empty, delete all entries for this date
+    if (!form.media || form.media.length === 0) {
+      const { error: deleteError } = await client
+        .from('media_consumed')
+        .delete()
+        .eq('user', user.value.id)
+        .eq('date', date)
+
+      if (deleteError) throw deleteError
+      return
+    }
+
+    // Get media IDs for selected items
+    const { data: mediaData, error: mediaError } = await client
+      .from('media')
+      .select('id, name')
+      .in('name', form.media)
+
+    if (mediaError) throw mediaError
+
+    // Get existing entries for this date
+    const { data: existingEntries, error: fetchError } = await client
+      .from('media_consumed')
+      .select('media')
+      .eq('user', user.value.id)
+      .eq('date', date)
+
+    if (fetchError) throw fetchError
+
+    // Find entries to delete (entries that exist but aren't in the new selection)
+    const selectedMediaIds = mediaData.map(m => m.id)
+    const existingMediaIds = existingEntries?.map(entry => entry.media) || []
+    
+    const idsToDelete = existingMediaIds.filter(id => !selectedMediaIds.includes(id))
+    
+    // Delete removed entries
+    if (idsToDelete.length > 0) {
+      const { error: deleteError } = await client
+        .from('media_consumed')
+        .delete()
+        .eq('user', user.value.id)
+        .eq('date', date)
+        .in('media', idsToDelete)
+
+      if (deleteError) throw deleteError
+    }
+
+    // Add new entries
+    const newMediaEntries = mediaData
+      .filter(media => !existingMediaIds.includes(media.id))
+      .map(media => ({
+        user: user.value.id,
+        date: date,
+        media: media.id
+      }))
+
+    if (newMediaEntries.length > 0) {
+      const { error: insertError } = await client
+        .from('media_consumed')
+        .insert(newMediaEntries)
+
+      if (insertError) throw insertError
+    }
+
+  } catch (err) {
+    console.error('Error handling media entries:', err)
+    throw new Error('Failed to save media consumption data')
+  }
+}
+
+// Update the upsertEntry function
+async function upsertEntry(dataToUpload) {
+  if (existingEntryId.value) dataToUpload.id = existingEntryId.value
+
+  try {
+    // First handle the tracker data
+    const { error } = await client
+      .from('tracker')
+      .upsert([dataToUpload], { onConflict: ['user_id', 'date'] })
+
+    if (error) throw new Error('Error upserting tracker data: ' + error.message)
+
+    // Then handle media entries
+    await handleMediaEntries(dataToUpload.date)
+
+    showSuccessDialog.value = true
+    console.log('Entry successfully saved:', dataToUpload)
+  } catch (err) {
+    console.error('Unexpected error during upsert:', err.message)
+    errorMessage.value = err.message
+    showErrorDialog.value = true
+  } finally {
+    showUpdateDialog.value = false
+    existingEntryId.value = null
+  }
+}
+
+// Update fetchData function
 async function fetchData() {
   if (!user.value) return
   try {
-    const {data} = await client
+    const date = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0]
+    
+    // Fetch tracker data
+    const { data } = await client
       .from('tracker')
       .select()
-      .eq('date', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0])
+      .eq('date', date)
     
     if (data && data[0]) {
-      // Extract hours and minutes from sleep_start and sleep_end
+      // Handle sleep time data
       if (data[0].sleep_start) {
         const [startHour, startMinute] = data[0].sleep_start.split(':')
         data[0].sleep_start_hour = startHour
@@ -84,6 +192,24 @@ async function fetchData() {
       }
       
       Object.assign(form, data[0])
+    }
+
+    // Fetch media consumed for this date
+    const { data: mediaData, error: mediaError } = await client
+      .from('media_consumed')
+      .select(`
+        media (
+          id,
+          name
+        )
+      `)
+      .eq('user', user.value.id)
+      .eq('date', date)
+
+    if (!mediaError && mediaData) {
+      // Extract media names from the nested media objects
+      form.media = mediaData.map(entry => entry.media.name)
+      console.log('Fetched media:', form.media)
     }
   } catch (err) {
     console.error('Error fetching data:', err)
@@ -161,30 +287,6 @@ async function submitForm() {
     submitted.value = false
   }
 }
-
-// Upsert Entry
-async function upsertEntry(dataToUpload) {
-  if (existingEntryId.value) dataToUpload.id = existingEntryId.value
-
-  try {
-    const { error } = await client
-        .from('tracker')
-        .upsert([dataToUpload], { onConflict: ['user_id', 'date'] })
-
-    if (error) throw new Error('Error upserting tracker data: ' + error.message)
-
-    showSuccessDialog.value = true
-    console.log('Entry successfully saved:', dataToUpload)
-  } catch (err) {
-    console.error('Unexpected error during upsert:', err.message)
-    errorMessage.value = err.message
-    showErrorDialog.value = true
-  } finally {
-    showUpdateDialog.value = false
-    existingEntryId.value = null
-  }
-}
-
 
 // Update Wellbeing
 function updateWellbeing(value) {

@@ -5,7 +5,7 @@ interface FormProps {
   form: Record<string, any>
   title: string
   slug: string
-  type: 'bool' | 'number' | 'text' | 'select'
+  type: 'bool' | 'number' | 'text' | 'select' | 'media'
   options?: string[]
 }
 
@@ -56,5 +56,14 @@ const props = defineProps<FormProps>()
         {{ opt }}
       </option>
     </select>
+  </div>
+
+  <!-- Add Media Field -->
+  <div v-else-if="type === 'media'">
+    <d-media-tracker
+      :form="form"
+      :title="title"
+      :slug="slug"
+    />
   </div>
 </template>
