@@ -51,6 +51,10 @@ function destroyCharts() {
 }
 
 onMounted(async () => {
+  if (!user.value) {
+    // User not logged in, don't try to fetch data
+    return
+  }
   await fetchData()
   renderCharts()
 })
@@ -940,8 +944,19 @@ onBeforeUnmount(() => {
     
     <!-- Scrollable content section -->
     <div class="overflow-y-auto flex-1 p-1 px-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600 dark:hover:scrollbar-thumb-gray-500">
-      <!-- Charts in single column -->
-      <div class="flex flex-col gap-4">
+      <!-- Login message when not logged in -->
+      <div v-if="!user" class="flex flex-col items-center justify-center h-full p-8 text-center">
+        <div class="bg-amber-50 dark:bg-amber-900/30 p-6 rounded-lg border border-amber-200 dark:border-amber-700 max-w-md">
+          <h2 class="text-xl font-semibold mb-3">Please Log In</h2>
+          <p class="mb-4">You need to be logged in to view your personal insights and data visualizations.</p>
+          <NuxtLink to="/login" class="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+            Log In
+          </NuxtLink>
+        </div>
+      </div>
+      
+      <!-- Charts in single column (only shown when logged in) -->
+      <div v-else class="flex flex-col gap-4">
         <!-- Main trend chart -->
         <div class="p-4 border rounded-lg">
           <canvas id="combinedChart"></canvas>
