@@ -12,8 +12,9 @@ export default defineNuxtConfig({
         }
     },
     supabase: {
-        redirect: true,
-        exclude: ["/login", "/sign_up"],
+        redirect: false,
+        // exclude: ["/login", "/sign_up"],
+        requireLogin: false,
     },
     nitro: {
         preset: 'cloudflare-pages',
