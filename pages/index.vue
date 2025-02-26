@@ -1,5 +1,5 @@
 <script setup>
-import {reactive, ref} from 'vue'
+import {reactive, ref, onMounted, onBeforeUnmount, watch} from 'vue'
 import {nanoid} from 'nanoid'
 import WellbeingChart from '~/components/WellbeingChart.vue'
 import {House} from 'lucide-vue-next'
@@ -11,8 +11,6 @@ import DMediaTracker from '~/components/d-media-tracker.vue'
 // Initialize Supabase
 const client = useSupabaseClient()
 const user = useSupabaseUser()
-
-
 
 // Main Form
 const form = reactive({
@@ -41,6 +39,63 @@ const showUpdateDialog = ref(false)
 const showErrorDialog = ref(false)
 const errorMessage = ref('')
 const existingEntryId = ref(null)
+const showLoginPrompt = ref(false)
+
+// Add localStorage functionality
+const STORAGE_KEY = 'wellbeing_form_data'
+const today = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+// Save form data to localStorage
+function saveToLocalStorage() {
+  if (typeof window !== 'undefined') {
+    const dataToSave = {
+      ...form,
+      savedDate: today
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave))
+  }
+}
+
+// Load form data from localStorage
+function loadFromLocalStorage() {
+  if (typeof window !== 'undefined') {
+    const savedData = localStorage.getItem(STORAGE_KEY)
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData)
+        
+        // Only restore if it's from today
+        if (parsedData.savedDate === today) {
+          // Preserve the ID from the current form
+          const currentId = form.id
+          
+          // Merge saved data into form, excluding the savedDate property
+          const { savedDate, ...dataToRestore } = parsedData
+          Object.assign(form, dataToRestore)
+          
+          // Restore the current ID
+          form.id = currentId
+          
+          console.log('Restored form data from localStorage')
+          return true
+        } else {
+          // Clear localStorage if it's from a different day
+          localStorage.removeItem(STORAGE_KEY)
+          console.log('Cleared outdated form data from localStorage')
+        }
+      } catch (e) {
+        console.error('Error parsing saved form data:', e)
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    }
+    return false
+  }
+}
+
+// Watch for form changes and save to localStorage
+watch(form, () => {
+  saveToLocalStorage()
+}, { deep: true })
 
 // Field Config
 const fields = [
@@ -156,6 +211,9 @@ async function upsertEntry(dataToUpload) {
 
     showSuccessDialog.value = true
     console.log('Entry successfully saved:', dataToUpload)
+    
+    // Clear localStorage after successful submission
+    clearLocalStorage()
   } catch (err) {
     console.error('Unexpected error during upsert:', err.message)
     errorMessage.value = err.message
@@ -168,51 +226,59 @@ async function upsertEntry(dataToUpload) {
 
 // Update fetchData function
 async function fetchData() {
-  if (!user.value) return
-  try {
-    const date = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0]
-    
-    // Fetch tracker data
-    const { data } = await client
-      .from('tracker')
-      .select()
-      .eq('date', date)
-    
-    if (data && data[0]) {
-      // Handle sleep time data
-      if (data[0].sleep_start) {
-        const [startHour, startMinute] = data[0].sleep_start.split(':')
-        data[0].sleep_start_hour = startHour
-        data[0].sleep_start_minute = startMinute
+  // Try to load from localStorage first
+  const loadedFromStorage = loadFromLocalStorage()
+  
+  // If not loaded from storage and user is logged in, fetch from database
+  if (!loadedFromStorage && user.value) {
+    try {
+      const date = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().split('T')[0]
+      
+      // Fetch tracker data
+      const { data } = await client
+        .from('tracker')
+        .select()
+        .eq('date', date)
+      
+      if (data && data[0]) {
+        // Handle sleep time data
+        if (data[0].sleep_start) {
+          const [startHour, startMinute] = data[0].sleep_start.split(':')
+          data[0].sleep_start_hour = startHour
+          data[0].sleep_start_minute = startMinute
+        }
+        if (data[0].sleep_end) {
+          const [endHour, endMinute] = data[0].sleep_end.split(':')
+          data[0].sleep_end_hour = endHour
+          data[0].sleep_end_minute = endMinute
+        }
+        
+        Object.assign(form, data[0])
       }
-      if (data[0].sleep_end) {
-        const [endHour, endMinute] = data[0].sleep_end.split(':')
-        data[0].sleep_end_hour = endHour
-        data[0].sleep_end_minute = endMinute
+
+      // Fetch media consumed for this date
+      const { data: mediaData, error: mediaError } = await client
+        .from('media_consumed')
+        .select(`
+          media (
+            id,
+            name
+          )
+        `)
+        .eq('user', user.value.id)
+        .eq('date', date)
+
+      if (!mediaError && mediaData) {
+        // Extract media names from the nested media objects
+        form.media = mediaData.map(entry => entry.media.name)
+        console.log('Fetched media:', form.media)
       }
       
-      Object.assign(form, data[0])
+      // Save the fetched data to localStorage
+      saveToLocalStorage()
+    } catch (err) {
+      console.error('Error fetching data:', err)
     }
-
-    // Fetch media consumed for this date
-    const { data: mediaData, error: mediaError } = await client
-      .from('media_consumed')
-      .select(`
-        media (
-          id,
-          name
-        )
-      `)
-      .eq('user', user.value.id)
-      .eq('date', date)
-
-    if (!mediaError && mediaData) {
-      // Extract media names from the nested media objects
-      form.media = mediaData.map(entry => entry.media.name)
-      console.log('Fetched media:', form.media)
-    }
-  } catch (err) {
-    console.error('Error fetching data:', err)
   }
 }
 
@@ -249,10 +315,11 @@ function prepareFormData() {
 
 // Submit Handler
 async function submitForm() {
-  // Example check: if user is not logged in, show error
+  // If user is not logged in, show error with login button
   if (!user.value) {
     showErrorDialog.value = true
     errorMessage.value = 'You must be logged in to submit.'
+    showLoginPrompt.value = true
     return
   }
 
@@ -302,6 +369,14 @@ function handleClick(item){
   let nextIndex = (index + 1) % toggleStates.length
   let nextState = toggleStates[nextIndex]
   form[item.slug] = nextState
+}
+
+// Clear localStorage after successful submission
+function clearLocalStorage() {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(STORAGE_KEY)
+    console.log('Cleared form data from localStorage after submission')
+  }
 }
 
 onMounted(() => {
@@ -424,12 +499,23 @@ onMounted(() => {
         v-if="showErrorDialog"
         class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
     >
-      <div class="bg-white p-6 rounded-lg shadow-lg max-w-md text-center">
-        <h2 class="text-xl font-bold mb-4">Something Went Wrong</h2>
-        <p class="mb-4">{{ errorMessage }}</p>
-        <p>Please try again later.</p>
-        <br/>
-        <p>If the problem persists, please contact mail@memetasks.com</p>
+      <div class="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-lg max-w-md text-center">
+        <h2 class="text-xl font-bold mb-4 dark:text-white">Something Went Wrong</h2>
+        <p class="mb-4 dark:text-gray-300">{{ errorMessage }}</p>
+        
+        <div v-if="showLoginPrompt" class="mb-4">
+          <NuxtLink 
+            to="/login" 
+            class="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+          >
+            Log In
+          </NuxtLink>
+        </div>
+        
+        <p v-else class="dark:text-gray-300">Please try again later.</p>
+        <br v-if="!showLoginPrompt"/>
+        <p v-if="!showLoginPrompt" class="dark:text-gray-300">If the problem persists, please contact mail@memetasks.com</p>
+        
         <button
             class="bg-red-500 text-white p-2 mt-4 rounded w-full"
             @click="showErrorDialog = false"
